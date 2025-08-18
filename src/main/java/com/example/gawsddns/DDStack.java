@@ -52,7 +52,7 @@ public class DDStack extends Stack {
 
         // Create the custom domain
         DomainName customDomain = DomainName.Builder.create(this, "CustomDomain")
-            .domainName("ddns.gretrostuff.com")
+            .domainName("members.gretrostuff.com")
             .certificate(certificate)
             .build();
 
@@ -68,10 +68,10 @@ public class DDStack extends Stack {
             .basePath("") // Empty string means root path
             .build();
 
-        // Create DNS record to point ddns.gretrostuff.com to the custom domain
+        // Create DNS record to point members.gretrostuff.com to the custom domain
         ARecord.Builder.create(this, "DDNSRecord")
             .zone(hostedZone)
-            .recordName("ddns")
+            .recordName("members")
             .target(RecordTarget.fromAlias(new ApiGatewayDomain(customDomain)))
             .build();
     }

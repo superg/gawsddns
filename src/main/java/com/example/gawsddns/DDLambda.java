@@ -108,7 +108,7 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
         
         // Example: hardcoded credentials (NOT recommended for production)
         // Replace with your preferred authentication method
-        return "ddclient".equals(username) && "your-secret-password".equals(password);
+        return "superg".equals(username) && "DontLookHere-290".equals(password);
     }
     
     /**
