@@ -1,0 +1,6 @@
+{
+  "app": "mvn exec:java -Dexec.mainClass=com.example.gawsddns.DDApp",
+  "context": {
+    "aws-cdk:enableDiffNoFail": "true"
+  }
+}
