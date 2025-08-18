@@ -24,7 +24,7 @@ public class DDStack extends Stack {
             .build();
 
         lambda.addToRolePolicy(PolicyStatement.Builder.create()
-            .actions(List.of("route53:ChangeResourceRecordSets"))
+            .actions(List.of("route53:ChangeResourceRecordSets", "route53:ListHostedZones"))
             .resources(List.of("*")) // You can scope this to specific hosted zone
             .effect(Effect.ALLOW)
             .build());
