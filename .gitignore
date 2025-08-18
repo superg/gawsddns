@@ -1,26 +1,3 @@
-# Maven build directory
-target/
-
-# Notes file
-notes.txt
-
-# IDE files
-.idea/
 .vscode/
-*.iml
-*.ipr
-*.iws
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Log files
-*.log
-
-# Temporary files
-*.tmp
-*.temp
-
-# AWS CDK output
+target/
 cdk.out/

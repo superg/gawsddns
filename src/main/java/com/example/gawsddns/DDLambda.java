@@ -13,10 +13,118 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
     private static final Logger logger = LoggerFactory.getLogger(DDLambda.class);
     
     /**
-     * Queries the hosted zone ID for a given domain name
-     * @param domain The domain name to find the hosted zone for
-     * @return The hosted zone ID, or null if not found
+     * Extracts parameter from various sources (query params, body, headers)
      */
+    private String extractParameter(Map<String, Object> input, String... paramNames) {
+        for (String paramName : paramNames) {
+            // Check query string parameters
+            Map<String, String> queryParams = getQueryStringParameters(input);
+            if (queryParams != null && queryParams.containsKey(paramName)) {
+                return queryParams.get(paramName);
+            }
+            
+            // Check body parameters (if JSON)
+            String value = getFromBody(input, paramName);
+            if (value != null) {
+                return value;
+            }
+            
+            // Check headers
+            Map<String, String> headers = getHeaders(input);
+            if (headers != null && headers.containsKey(paramName.toLowerCase())) {
+                return headers.get(paramName.toLowerCase());
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Gets query string parameters from API Gateway event
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, String> getQueryStringParameters(Map<String, Object> input) {
+        return (Map<String, String>) input.get("queryStringParameters");
+    }
+    
+    /**
+     * Gets headers from API Gateway event
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, String> getHeaders(Map<String, Object> input) {
+        return (Map<String, String>) input.get("headers");
+    }
+    
+    /**
+     * Extracts parameter from JSON body
+     */
+    private String getFromBody(Map<String, Object> input, String paramName) {
+        String body = (String) input.get("body");
+        if (body != null && body.trim().startsWith("{")) {
+            try {
+                // Simple JSON parsing for key-value pairs
+                if (body.contains("\"" + paramName + "\"")) {
+                    String[] parts = body.split("\"" + paramName + "\"\\s*:\\s*\"");
+                    if (parts.length > 1) {
+                        String value = parts[1].split("\"")[0];
+                        return value;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Error parsing body for parameter {}: {}", paramName, e.getMessage());
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Gets client IP from API Gateway event
+     */
+    @SuppressWarnings("unchecked")
+    private String getClientIpFromApiGateway(Map<String, Object> input) {
+        try {
+            Map<String, Object> requestContext = (Map<String, Object>) input.get("requestContext");
+            if (requestContext != null) {
+                Map<String, Object> identity = (Map<String, Object>) requestContext.get("identity");
+                if (identity != null) {
+                    return (String) identity.get("sourceIp");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error extracting client IP: {}", e.getMessage());
+        }
+        return null;
+    }
+    
+    /**
+     * Basic authentication validation
+     * You should customize this based on your security requirements
+     */
+    private boolean isValidCredentials(String username, String password) {
+        // For now, allow any non-empty credentials
+        // In production, you'd want to validate against a secure store
+        if (username == null || password == null) {
+            return false;
+        }
+        
+        // Example: hardcoded credentials (NOT recommended for production)
+        // Replace with your preferred authentication method
+        return "ddclient".equals(username) && "your-secret-password".equals(password);
+    }
+    
+    /**
+     * Creates an error response in API Gateway format
+     */
+    private Map<String, Object> createErrorResponse(int statusCode, String message) {
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("statusCode", statusCode);
+        
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", "text/plain");
+        errorResponse.put("headers", headers);
+        
+        errorResponse.put("body", message);
+        return errorResponse;
+    }
     private String getHostedZoneIdForDomain(String domain) {
         try {
             Route53Client client = Route53Client.create();
@@ -69,11 +177,35 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
     
     @Override
     public Map<String, Object> handleRequest(Map<String, Object> input, Context context) {
-        logger.info("Lambda function started");
+        logger.info("Lambda function started with input: {}", input);
         
         try {
-            String ip = "1.2.3.4"; // Extract from input
-            String domain = "test.gretrostuff.com";
+            // Extract parameters from different possible sources
+            String ip = extractParameter(input, "myip");
+            String domain = extractParameter(input, "hostname");
+            String username = extractParameter(input, "login", "username");
+            String password = extractParameter(input, "password");
+            
+            // Validate required parameters
+            if (domain == null || domain.trim().isEmpty()) {
+                throw new IllegalArgumentException("Missing required parameter: hostname");
+            }
+            
+            // If no IP provided, try to detect client IP from API Gateway
+            if (ip == null || ip.trim().isEmpty()) {
+                ip = getClientIpFromApiGateway(input);
+            }
+            
+            if (ip == null || ip.trim().isEmpty()) {
+                throw new IllegalArgumentException("Unable to determine IP address");
+            }
+            
+            // Basic authentication check (you can customize this)
+            if (!isValidCredentials(username, password)) {
+                return createErrorResponse(401, "Authentication failed");
+            }
+            
+            logger.info("Authenticated request - Updating DNS record: {} -> {}", domain, ip);
             
             // Query hosted zone ID from the domain
             String hostedZoneId = getHostedZoneIdForDomain(domain);
@@ -81,7 +213,7 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
                 throw new RuntimeException("Could not find hosted zone for domain: " + domain);
             }
 
-            logger.info("Updating DNS record: {} -> {} in zone {}", domain, ip, hostedZoneId);
+            logger.info("Found hosted zone {} for domain {}", hostedZoneId, domain);
 
             Route53Client client = Route53Client.create();
             ChangeResourceRecordSetsRequest request = ChangeResourceRecordSetsRequest.builder()
@@ -104,41 +236,38 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             String result = "Updated " + domain + " to " + ip;
             logger.info("Successfully updated DNS record: {}", result);
             
-            // Return proper API Gateway response format
+            // Return ddclient-compatible response
             Map<String, Object> apiResponse = new HashMap<>();
             apiResponse.put("statusCode", 200);
             
             Map<String, String> headers = new HashMap<>();
-            headers.put("Content-Type", "application/json");
+            headers.put("Content-Type", "text/plain");
             apiResponse.put("headers", headers);
             
-            Map<String, Object> body = new HashMap<>();
-            body.put("message", result);
-            body.put("changeId", response.changeInfo().id());
-            body.put("status", response.changeInfo().status().toString());
-            
-            // Simple JSON string construction
-            String jsonBody = String.format(
-                "{\"message\":\"%s\",\"changeId\":\"%s\",\"status\":\"%s\"}", 
-                result, response.changeInfo().id(), response.changeInfo().status().toString()
-            );
-            apiResponse.put("body", jsonBody);
+            // ddclient expects simple text responses like "good" or "nochg"
+            String responseBody = "good " + ip;
+            apiResponse.put("body", responseBody);
             
             return apiResponse;
             
         } catch (Exception e) {
             logger.error("Error updating DNS record", e);
             
-            // Return proper error response format
+            // Return ddclient-compatible error response
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("statusCode", 500);
             
             Map<String, String> headers = new HashMap<>();
-            headers.put("Content-Type", "application/json");
+            headers.put("Content-Type", "text/plain");
             errorResponse.put("headers", headers);
             
-            String errorBody = String.format("{\"error\":\"Failed to update DNS record: %s\"}", 
-                e.getMessage().replace("\"", "\\\"")); // Escape quotes
+            // ddclient expects error responses like "badauth", "nohost", "abuse", etc.
+            String errorBody = "911"; // Generic error code for ddclient
+            if (e.getMessage().contains("Authentication")) {
+                errorBody = "badauth";
+            } else if (e.getMessage().contains("hosted zone")) {
+                errorBody = "nohost";
+            }
             errorResponse.put("body", errorBody);
             
             return errorResponse;
