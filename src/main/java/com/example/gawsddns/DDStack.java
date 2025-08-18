@@ -15,7 +15,7 @@ public class DDStack extends Stack {
     public DDStack(final Construct scope, final String id) {
         super(scope, id);
 
-        Function lambda = Function.Builder.create(this, "DyndnsLambda")
+        Function lambda = Function.Builder.create(this, "DDLambda")
             .runtime(Runtime.JAVA_17)
             .handler("com.example.gawsddns.DDLambda::handleRequest")
             .code(Code.fromAsset("target/gawsddns-1.0-SNAPSHOT.jar"))
@@ -29,7 +29,7 @@ public class DDStack extends Stack {
             .effect(Effect.ALLOW)
             .build());
 
-        LambdaRestApi.Builder.create(this, "DyndnsApi")
+        LambdaRestApi.Builder.create(this, "DDApi")
             .handler(lambda)
             .build();
     }

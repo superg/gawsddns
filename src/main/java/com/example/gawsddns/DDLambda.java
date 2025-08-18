@@ -10,8 +10,8 @@ public class DDLambda implements RequestHandler<Map<String, Object>, String> {
     @Override
     public String handleRequest(Map<String, Object> input, Context context) {
         String ip = "1.2.3.4"; // Extract from input
-        String domain = "yourdomain.example.com";
-        String hostedZoneId = "Z1234567890"; // Replace with your zone ID
+        String domain = "test.gretrostuff.com";
+        String hostedZoneId = "Z08977261PQD0STZXZ69R"; // Replace with your zone ID
 
         Route53Client client = Route53Client.create();
         ChangeResourceRecordSetsRequest request = ChangeResourceRecordSetsRequest.builder()
