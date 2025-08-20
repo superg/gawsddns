@@ -7,11 +7,19 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
 
+export interface DDStackProps extends cdk.StackProps {
+  config: {
+    certificateId: string;
+    domainName: string;
+    subdomainName: string;
+  };
+}
+
 export class DDStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: DDStackProps) {
     super(scope, id, props);
 
-    // Create Lambda function (currently Java, will be converted to Rust later)
+    // Create Lambda function
     const ddLambda = new lambda.Function(this, 'DDLambda', {
       runtime: lambda.Runtime.JAVA_17,
       handler: 'com.example.gawsddns.DDLambda::handleRequest',
@@ -22,7 +30,7 @@ export class DDStack extends cdk.Stack {
 
     // Add IAM permissions for Route53
     ddLambda.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['route53:ChangeResourceRecordSets', 'route53:ListHostedZones'],
+      actions: ['route53:ChangeResourceRecordSets', 'route53:ListHostedZones', 'route53:ListResourceRecordSets'],
       resources: ['*'], // You can scope this to specific hosted zone
       effect: iam.Effect.ALLOW,
     }));
@@ -31,17 +39,17 @@ export class DDStack extends cdk.Stack {
     const certificate = certificatemanager.Certificate.fromCertificateArn(
       this,
       'Certificate',
-      'arn:aws:acm:us-east-1:223166462382:certificate/b8d54284-3534-4b4f-bac6-726c8fed930a'
+      `arn:aws:acm:${this.region}:${this.account}:certificate/${props.config.certificateId}`
     );
 
     // Look up your existing hosted zone for gretrostuff.com
     const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
-      domainName: 'gretrostuff.com',
+      domainName: props.config.domainName,
     });
 
     // Create the custom domain
     const customDomain = new apigateway.DomainName(this, 'CustomDomain', {
-      domainName: 'members.gretrostuff.com',
+      domainName: `${props.config.subdomainName}.${props.config.domainName}`,
       certificate: certificate,
     });
 
@@ -80,7 +88,7 @@ export class DDStack extends cdk.Stack {
     // Create DNS record to point members.gretrostuff.com to the custom domain
     new route53.ARecord(this, 'DDNSRecord', {
       zone: hostedZone,
-      recordName: 'members',
+      recordName: props.config.subdomainName,
       target: route53.RecordTarget.fromAlias(new targets.ApiGatewayDomain(customDomain)),
     });
   }

@@ -119,9 +119,64 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
     
     private String getCurrentDnsRecord(String domain) {
         try {
-            java.net.InetAddress addr = java.net.InetAddress.getByName(domain);
-            return addr.getHostAddress();
+            Route53Client client = Route53Client.create();
+            
+            // Find the hosted zone first
+            String hostedZoneId = null;
+            String domainToCheck = domain;
+            
+            while (domainToCheck.contains(".")) {
+                ListHostedZonesResponse zones = client.listHostedZones();
+                for (HostedZone zone : zones.hostedZones()) {
+                    String zoneName = zone.name();
+                    if (zoneName.endsWith(".")) {
+                        zoneName = zoneName.substring(0, zoneName.length() - 1);
+                    }
+                    if (domainToCheck.equals(zoneName) || domain.endsWith("." + zoneName)) {
+                        hostedZoneId = zone.id();
+                        break;
+                    }
+                }
+                if (hostedZoneId != null) break;
+                
+                int dotIndex = domainToCheck.indexOf('.');
+                if (dotIndex == -1) break;
+                domainToCheck = domainToCheck.substring(dotIndex + 1);
+            }
+            
+            if (hostedZoneId == null) {
+                logger.info("No hosted zone found for {}, treating as new record", domain);
+                return null;
+            }
+            
+            // Query the current record
+            ListResourceRecordSetsRequest request = ListResourceRecordSetsRequest.builder()
+                .hostedZoneId(hostedZoneId)
+                .startRecordName(domain)
+                .startRecordType(RRType.A)
+                .build();
+                
+            ListResourceRecordSetsResponse response = client.listResourceRecordSets(request);
+            
+            for (ResourceRecordSet recordSet : response.resourceRecordSets()) {
+                String recordName = recordSet.name();
+                if (recordName.endsWith(".")) {
+                    recordName = recordName.substring(0, recordName.length() - 1);
+                }
+                
+                if (recordName.equals(domain) && recordSet.type() == RRType.A) {
+                    if (!recordSet.resourceRecords().isEmpty()) {
+                        String currentIp = recordSet.resourceRecords().get(0).value();
+                        logger.info("Current IP for {} is {}", domain, currentIp);
+                        return currentIp;
+                    }
+                }
+            }
+            
+            logger.info("No A record found for {}", domain);
+            return null;
         } catch (Exception e) {
+            logger.error("Error checking current DNS record for {}: {}", domain, e.getMessage());
             return null;
         }
     }
