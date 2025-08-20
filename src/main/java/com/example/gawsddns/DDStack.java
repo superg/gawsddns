@@ -22,7 +22,6 @@ import software.amazon.awscdk.services.route53.RecordTarget;
 import software.amazon.awscdk.services.route53.targets.ApiGatewayDomain;
 import software.constructs.Construct;
 import java.util.List;
-import java.util.Map;
 
 public class DDStack extends Stack {
     public DDStack(final Construct scope, final String id, final StackProps props) {
@@ -63,18 +62,9 @@ public class DDStack extends Stack {
             .restApiName("Dynamic DNS API")
             .build();
 
-        // Create Lambda integration
+        // Create Lambda integration with proxy
         LambdaIntegration integration = LambdaIntegration.Builder.create(lambda)
-            .requestTemplates(Map.of(
-                "application/json", 
-                "{\n" +
-                "  \"hostname\": \"$input.params('hostname')\",\n" +
-                "  \"myip\": \"$input.params('myip')\",\n" +
-                "  \"headers\": {\n" +
-                "    \"Authorization\": \"$input.params().header.get('Authorization')\"\n" +
-                "  }\n" +
-                "}"
-            ))
+            .proxy(true)  // Enable proxy integration
             .build();
 
         // Add GET method to root
@@ -85,6 +75,16 @@ public class DDStack extends Stack {
             .addResource("nic")
             .addResource("update")
             .addMethod("GET", integration);
+            
+        // Add /v3/update path for Dyn API v3 compatibility
+        api.getRoot()
+            .addResource("v3")
+            .addResource("update")
+            .addMethod("GET", integration);
+
+        // Add a proxy resource to catch any other paths
+        api.getRoot()
+            .addProxy();
 
         // Map the custom domain to the API for Dyn ddclient compatibility
         BasePathMapping.Builder.create(this, "BasePathMapping")
