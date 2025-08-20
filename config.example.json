@@ -1,0 +1,7 @@
+{
+  "account": "YOUR_AWS_ACCOUNT_ID",
+  "region": "YOUR_AWS_REGION",
+  "certificateId": "YOUR_CERTIFICATE_ID",
+  "domainName": "yourdomain.com",
+  "subdomainName": "members"
+}
