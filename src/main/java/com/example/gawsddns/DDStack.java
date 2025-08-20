@@ -29,7 +29,7 @@ public class DDStack extends Stack {
 
         Function lambda = Function.Builder.create(this, "DDLambda")
             .runtime(Runtime.JAVA_17)
-            .handler("com.example.gawsddns.DDLambdaClean::handleRequest")
+            .handler("com.example.gawsddns.DDLambda::handleRequest")
             .code(Code.fromAsset("target/gawsddns-1.0-SNAPSHOT.jar"))
             .memorySize(512)
             .timeout(Duration.seconds(10))
