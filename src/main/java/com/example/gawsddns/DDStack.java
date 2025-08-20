@@ -67,9 +67,6 @@ public class DDStack extends Stack {
             .proxy(true)  // Enable proxy integration
             .build();
 
-        // Add GET method to root
-        api.getRoot().addMethod("GET", integration);
-        
         // Add /nic/update path for Dyn compatibility
         api.getRoot()
             .addResource("nic")

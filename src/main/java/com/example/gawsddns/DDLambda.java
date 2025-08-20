@@ -60,10 +60,10 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             
             logger.info("Extracted - hostname: {}, myip: {}, hasAuth: {}", hostname, myip, authHeader != null);
             
-            // Validate path for Dyn API specification compliance
+            // Validate path for Dyn API specification compliance - only accept official endpoints
             String path = (String) input.get("path");
-            if (path != null && !path.equals("/nic/update") && !path.equals("/v3/update") && !path.equals("/")) {
-                logger.info("Invalid path: {}", path);
+            if (path != null && !path.equals("/nic/update") && !path.equals("/v3/update")) {
+                logger.info("Invalid path: {} - only /nic/update and /v3/update are supported", path);
                 return createResponse(404, "Not Found");
             }
             
