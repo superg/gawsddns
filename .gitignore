@@ -1,3 +1,8 @@
 .vscode/
 target/
 cdk.out/
+dependency-reduced-pom.xml
+node_modules/
+*.js
+*.js.map
+*.d.ts
