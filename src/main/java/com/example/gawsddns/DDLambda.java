@@ -2,10 +2,13 @@ package com.example.gawsddns;
 
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import software.amazon.awssdk.services.route53.Route53Client;
 import software.amazon.awssdk.services.route53.model.*;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -125,6 +128,20 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
         errorResponse.put("body", message);
         return errorResponse;
     }
+    
+    /**
+     * Gets the current IP address for a domain from DNS
+     */
+    private String getCurrentDnsRecord(String domain) {
+        try {
+            java.net.InetAddress addr = java.net.InetAddress.getByName(domain);
+            return addr.getHostAddress();
+        } catch (Exception e) {
+            logger.warn("Could not resolve current IP for domain {}: {}", domain, e.getMessage());
+            return null; // If we can't resolve, assume it needs updating
+        }
+    }
+    
     private String getHostedZoneIdForDomain(String domain) {
         try {
             Route53Client client = Route53Client.create();
@@ -180,11 +197,21 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
         logger.info("Lambda function started with input: {}", input);
         
         try {
+            // Log the entire input for debugging
+            logger.info("Full input received: {}", input);
+            
             // Extract parameters from different possible sources
             String ip = extractParameter(input, "myip");
             String domain = extractParameter(input, "hostname");
             String username = extractParameter(input, "login", "username");
             String password = extractParameter(input, "password");
+            
+            // Extract optional parameters (for Dyn compatibility - mostly ignored)
+            String wildcard = extractParameter(input, "wildcard");
+            String mx = extractParameter(input, "mx");
+            String backmx = extractParameter(input, "backmx");
+            String offline = extractParameter(input, "offline");
+            String system = extractParameter(input, "system"); // Legacy parameter
             
             // Validate required parameters
             if (domain == null || domain.trim().isEmpty()) {
@@ -214,6 +241,18 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             }
 
             logger.info("Found hosted zone {} for domain {}", hostedZoneId, domain);
+
+            // Check if IP has actually changed by querying current DNS record
+            String currentIp = getCurrentDnsRecord(domain);
+            if (ip.equals(currentIp)) {
+                logger.info("IP address {} is unchanged for domain {}", ip, domain);
+                
+                Map<String, Object> nochgResponse = new HashMap<>();
+                nochgResponse.put("statusCode", 200);
+                nochgResponse.put("headers", Map.of("Content-Type", "text/plain"));
+                nochgResponse.put("body", "nochg " + ip);
+                return nochgResponse;
+            }
 
             Route53Client client = Route53Client.create();
             ChangeResourceRecordSetsRequest request = ChangeResourceRecordSetsRequest.builder()
@@ -263,10 +302,12 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             
             // ddclient expects error responses like "badauth", "nohost", "abuse", etc.
             String errorBody = "911"; // Generic error code for ddclient
-            if (e.getMessage().contains("Authentication")) {
+            if (e.getMessage().contains("Authentication") || e.getMessage().contains("Credentials")) {
                 errorBody = "badauth";
-            } else if (e.getMessage().contains("hosted zone")) {
+            } else if (e.getMessage().contains("hosted zone") || e.getMessage().contains("domain")) {
                 errorBody = "nohost";
+            } else if (e.getMessage().contains("hostname")) {
+                errorBody = "notfqdn";
             }
             errorResponse.put("body", errorBody);
             

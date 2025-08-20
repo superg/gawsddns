@@ -8,7 +8,8 @@ import software.amazon.awscdk.services.lambda.Runtime;
 import software.amazon.awscdk.services.lambda.Code;
 import software.amazon.awscdk.services.iam.PolicyStatement;
 import software.amazon.awscdk.services.iam.Effect;
-import software.amazon.awscdk.services.apigateway.LambdaRestApi;
+import software.amazon.awscdk.services.apigateway.RestApi;
+import software.amazon.awscdk.services.apigateway.LambdaIntegration;
 import software.amazon.awscdk.services.apigateway.DomainName;
 import software.amazon.awscdk.services.apigateway.BasePathMapping;
 import software.amazon.awscdk.services.certificatemanager.ICertificate;
@@ -21,6 +22,7 @@ import software.amazon.awscdk.services.route53.RecordTarget;
 import software.amazon.awscdk.services.route53.targets.ApiGatewayDomain;
 import software.constructs.Construct;
 import java.util.List;
+import java.util.Map;
 
 public class DDStack extends Stack {
     public DDStack(final Construct scope, final String id, final StackProps props) {
@@ -28,7 +30,7 @@ public class DDStack extends Stack {
 
         Function lambda = Function.Builder.create(this, "DDLambda")
             .runtime(Runtime.JAVA_17)
-            .handler("com.example.gawsddns.DDLambda::handleRequest")
+            .handler("com.example.gawsddns.DDLambdaClean::handleRequest")
             .code(Code.fromAsset("target/gawsddns-1.0-SNAPSHOT.jar"))
             .memorySize(512)
             .timeout(Duration.seconds(10))
@@ -56,16 +58,39 @@ public class DDStack extends Stack {
             .certificate(certificate)
             .build();
 
-        // Create the API
-        LambdaRestApi api = LambdaRestApi.Builder.create(this, "DDApi")
-            .handler(lambda)
+        // Create the API with direct Lambda integration
+        RestApi api = RestApi.Builder.create(this, "DDApi")
+            .restApiName("Dynamic DNS API")
             .build();
 
-        // Map the custom domain to the API
+        // Create Lambda integration
+        LambdaIntegration integration = LambdaIntegration.Builder.create(lambda)
+            .requestTemplates(Map.of(
+                "application/json", 
+                "{\n" +
+                "  \"hostname\": \"$input.params('hostname')\",\n" +
+                "  \"myip\": \"$input.params('myip')\",\n" +
+                "  \"headers\": {\n" +
+                "    \"Authorization\": \"$input.params().header.get('Authorization')\"\n" +
+                "  }\n" +
+                "}"
+            ))
+            .build();
+
+        // Add GET method to root
+        api.getRoot().addMethod("GET", integration);
+        
+        // Add /nic/update path for Dyn compatibility
+        api.getRoot()
+            .addResource("nic")
+            .addResource("update")
+            .addMethod("GET", integration);
+
+        // Map the custom domain to the API for Dyn ddclient compatibility
         BasePathMapping.Builder.create(this, "BasePathMapping")
             .domainName(customDomain)
             .restApi(api)
-            .basePath("") // Empty string means root path
+            .basePath("") // Empty string means root path - Lambda will handle /nic/update routing
             .build();
 
         // Create DNS record to point members.gretrostuff.com to the custom domain
