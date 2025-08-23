@@ -19,7 +19,6 @@ export class DDStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DDStackProps) {
     super(scope, id, props);
 
-    // Create Lambda function
     const ddLambda = new lambda.Function(this, 'DDLambda', {
       runtime: lambda.Runtime.JAVA_17,
       handler: 'com.example.gawsddns.DDLambda::handleRequest',
@@ -28,29 +27,15 @@ export class DDStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
     });
 
-    // Add IAM permissions for Route53
     ddLambda.addToRolePolicy(new iam.PolicyStatement({
       actions: ['route53:ChangeResourceRecordSets', 'route53:ListHostedZones', 'route53:ListResourceRecordSets'],
-      resources: ['*'], // You can scope this to specific hosted zone
+      resources: ['*'],
       effect: iam.Effect.ALLOW,
     }));
 
-    // Look up your existing wildcard certificate for *.gretrostuff.com
-    const certificate = certificatemanager.Certificate.fromCertificateArn(
-      this,
-      'Certificate',
-      `arn:aws:acm:${this.region}:${this.account}:certificate/${props.config.certificateId}`
-    );
-
-    // Look up your existing hosted zone for gretrostuff.com
+    // Look up your existing hosted zone
     const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
       domainName: props.config.domainName,
-    });
-
-    // Create the custom domain
-    const customDomain = new apigateway.DomainName(this, 'CustomDomain', {
-      domainName: `${props.config.subdomainName}.${props.config.domainName}`,
-      certificate: certificate,
     });
 
     // Create the API with direct Lambda integration
@@ -63,13 +48,13 @@ export class DDStack extends cdk.Stack {
       proxy: true, // Enable proxy integration
     });
 
-    // Add /nic/update path for Dyn compatibility
+    // Add /nic/update path for DynDNS compatibility
     api.root
       .addResource('nic')
       .addResource('update')
       .addMethod('GET', integration);
 
-    // Add /v3/update path for Dyn API v3 compatibility
+    // Add /v3/update path for DynDNS API v3 compatibility
     api.root
       .addResource('v3')
       .addResource('update')
@@ -78,14 +63,26 @@ export class DDStack extends cdk.Stack {
     // Add a proxy resource to catch any other paths
     api.root.addProxy();
 
-    // Map the custom domain to the API for Dyn ddclient compatibility
+    // Create custom domain with SSL certificate
+    const certificate = certificatemanager.Certificate.fromCertificateArn(
+      this,
+      'Certificate',
+      `arn:aws:acm:${this.region}:${this.account}:certificate/${props.config.certificateId}`
+    );
+
+    const customDomain = new apigateway.DomainName(this, 'CustomDomain', {
+      domainName: `${props.config.subdomainName}.${props.config.domainName}`,
+      certificate: certificate,
+    });
+
+    // Map the custom domain to the API
     new apigateway.BasePathMapping(this, 'BasePathMapping', {
       domainName: customDomain,
       restApi: api,
-      basePath: '', // Empty string means root path - Lambda will handle /nic/update routing
+      basePath: '', // Empty string means root path
     });
 
-    // Create DNS record to point members.gretrostuff.com to the custom domain
+    // Create DNS record for HTTPS endpoint
     new route53.ARecord(this, 'DDNSRecord', {
       zone: hostedZone,
       recordName: props.config.subdomainName,
