@@ -9,52 +9,39 @@ import java.util.HashMap;
 import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 public class DDLambda implements RequestHandler<Map<String, Object>, Map<String, Object>> {
     private static final Logger logger = LoggerFactory.getLogger(DDLambda.class);
     
     @Override
     public Map<String, Object> handleRequest(Map<String, Object> input, Context context) {
-        logger.info("DDNS Lambda started");
-        logger.info("Full input: {}", input);
+        logger.info("input: {}", new Gson().toJson(input));
         
         try {
-            // Extract parameters from the input
+            // Extract parameters from API Gateway proxy format
             String hostname = null;
             String myip = null;
             String authHeader = null;
             
-            // Check if this is a direct mapped input (from request template)
-            hostname = (String) input.get("hostname");
-            myip = (String) input.get("myip");
+            // Get query parameters (hostname and myip)
+            Object queryParamsObj = input.get("queryStringParameters");
+            if (queryParamsObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, String> queryParams = (Map<String, String>) queryParamsObj;
+                hostname = queryParams.get("hostname");
+                myip = queryParams.get("myip");
+            }
             
-            // Try to get auth header from direct mapping
+            // Get authorization header
             Object headersObj = input.get("headers");
             if (headersObj instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, String> headers = (Map<String, String>) headersObj;
                 authHeader = headers.get("Authorization");
-            }
-            
-            // If not found in direct mapping, try API Gateway proxy format
-            if (hostname == null) {
-                Object queryParamsObj = input.get("queryStringParameters");
-                if (queryParamsObj instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, String> queryParams = (Map<String, String>) queryParamsObj;
-                    hostname = queryParams.get("hostname");
-                    myip = queryParams.get("myip");
-                }
-                
-                // Try to get auth header from proxy format
-                Object proxyHeadersObj = input.get("headers");
-                if (proxyHeadersObj instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, String> proxyHeaders = (Map<String, String>) proxyHeadersObj;
-                    authHeader = proxyHeaders.get("Authorization");
-                    if (authHeader == null) {
-                        authHeader = proxyHeaders.get("authorization");
-                    }
+                if (authHeader == null) {
+                    authHeader = headers.get("authorization"); // case-insensitive fallback
                 }
             }
             

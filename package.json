@@ -4,13 +4,15 @@
   "description": "Dynamic DNS service using AWS CDK",
   "main": "lib/dd-stack.js",
   "scripts": {
-    "build": "tsc",
+    "build:java": "mvn clean package",
+    "build:ts": "tsc",
+    "build": "npm run build:java && npm run build:ts",
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk",
-    "deploy": "cdk deploy",
-    "diff": "cdk diff",
-    "synth": "cdk synth"
+    "deploy": "npm run build && cdk deploy",
+    "diff": "npm run build && cdk diff",
+    "synth": "npm run build && cdk synth"
   },
   "bin": {
     "dd": "bin/dd.js"
