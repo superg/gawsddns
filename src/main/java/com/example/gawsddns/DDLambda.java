@@ -19,7 +19,8 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
     @Override
     public Map<String, Object> handleRequest(Map<String, Object> input, Context context)
     {
-        try {
+        try
+        {
             logger.info("input: {}", new Gson().toJson(input));
             
             // get authentication info
@@ -37,7 +38,7 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             
             // validate update path
             String path = (String)input.get("path");
-            if(path != null && !path.equals("/nic/update") && !path.equals("/v3/update"))
+            if(path != null && !path.equals("/nic/update"))
                 return createResponse(404, "Not Found");
 
             // get arguments
@@ -73,12 +74,19 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
                 }
             }
             
+            Route53Client client = Route53Client.create();
+            
+            String hosted_zone_id = findHostedZone(client, hostname);
+            if(hosted_zone_id == null)
+                return createResponse(400, "nohost");
+            
             // check if IP has changed
-            if(myip.equals(getCurrentDnsRecord(hostname)))
+            String current_ip = getCurrentDnsRecord(client, hosted_zone_id, hostname);
+            if(current_ip != null && myip.equals(current_ip))
                 return createResponse(200, "nochg " + myip);
             
             // update DNS record
-            updateDnsRecord(hostname, myip);
+            updateDnsRecord(client, hosted_zone_id, hostname, myip);
             
             return createResponse(200, "good " + myip);
         }
@@ -111,6 +119,7 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
         return response;
     }
 
+    // FIXME: implement proper authorization with secrets
     private boolean isValidAuth(String authHeader)
     {
         if(authHeader == null || !authHeader.startsWith("Basic "))
@@ -130,109 +139,65 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
         }
     }
     
-    private String getCurrentDnsRecord(String domain)
+    private String findHostedZone(Route53Client client, String domain)
     {
-        try
+        String domain_to_check = domain;
+        while(domain_to_check.contains("."))
         {
-            Route53Client client = Route53Client.create();
-            
-            // Find the hosted zone first
-            String hostedZoneId = null;
-            String domainToCheck = domain;
-            
-            while (domainToCheck.contains(".")) {
-                ListHostedZonesResponse zones = client.listHostedZones();
-                for (HostedZone zone : zones.hostedZones()) {
-                    String zoneName = zone.name();
-                    if (zoneName.endsWith(".")) {
-                        zoneName = zoneName.substring(0, zoneName.length() - 1);
-                    }
-                    if (domainToCheck.equals(zoneName) || domain.endsWith("." + zoneName)) {
-                        hostedZoneId = zone.id();
-                        break;
-                    }
-                }
-                if (hostedZoneId != null) break;
-                
-                int dotIndex = domainToCheck.indexOf('.');
-                if (dotIndex == -1) break;
-                domainToCheck = domainToCheck.substring(dotIndex + 1);
+            ListHostedZonesResponse zones = client.listHostedZones();
+            for(HostedZone zone : zones.hostedZones())
+            {
+                String zone_name = zone.name();
+                if(zone_name.endsWith("."))
+                    zone_name = zone_name.substring(0, zone_name.length() - 1);
+
+                if(domain_to_check.equals(zone_name) || domain.endsWith("." + zone_name))
+                    return zone.id();
             }
-            
-            if (hostedZoneId == null) {
-                logger.info("No hosted zone found for {}, treating as new record", domain);
-                return null;
-            }
-            
-            // Query the current record
-            ListResourceRecordSetsRequest request = ListResourceRecordSetsRequest.builder()
-                .hostedZoneId(hostedZoneId)
-                .startRecordName(domain)
-                .startRecordType(RRType.A)
-                .build();
-                
-            ListResourceRecordSetsResponse response = client.listResourceRecordSets(request);
-            
-            for (ResourceRecordSet recordSet : response.resourceRecordSets()) {
-                String recordName = recordSet.name();
-                if (recordName.endsWith(".")) {
-                    recordName = recordName.substring(0, recordName.length() - 1);
-                }
-                
-                if (recordName.equals(domain) && recordSet.type() == RRType.A) {
-                    if (!recordSet.resourceRecords().isEmpty()) {
-                        String currentIp = recordSet.resourceRecords().get(0).value();
-                        logger.info("Current IP for {} is {}", domain, currentIp);
-                        return currentIp;
-                    }
-                }
-            }
-            
-            logger.info("No A record found for {}", domain);
-            return null;
+
+            int dot_index = domain_to_check.indexOf('.');
+            if(dot_index == -1)
+                break;
+
+            domain_to_check = domain_to_check.substring(dot_index + 1);
         }
-        catch (Exception e)
+        
+        return null;
+    }
+
+    private String getCurrentDnsRecord(Route53Client client, String hosted_zone_id, String domain)
+    {
+        ListResourceRecordSetsRequest request = ListResourceRecordSetsRequest.builder()
+            .hostedZoneId(hosted_zone_id)
+            .startRecordName(domain)
+            .startRecordType(RRType.A)
+            .build();
+            
+        ListResourceRecordSetsResponse response = client.listResourceRecordSets(request);
+        
+        for(ResourceRecordSet record_set : response.resourceRecordSets())
         {
-            logger.error("Error checking current DNS record for {}: {}", domain, e.getMessage());
-            return null;
+            String record_name = record_set.name();
+            if(record_name.endsWith("."))
+                record_name = record_name.substring(0, record_name.length() - 1);
+            
+            if(record_name.equals(domain) && record_set.type() == RRType.A)
+            {
+                if(!record_set.resourceRecords().isEmpty())
+                {
+                    String current_ip = record_set.resourceRecords().get(0).value();
+                    return current_ip;
+                }
+            }
         }
+        
+        return null;
     }
     
-    private void updateDnsRecord(String domain, String ip) throws Exception
+    private void updateDnsRecord(Route53Client client, String hosted_zone_id, String domain, String ip)
     {
-        // Find the hosted zone
-        Route53Client client = Route53Client.create();
-        
-        String hostedZoneId = null;
-        String domainToCheck = domain;
-        
-        // Try to find the hosted zone by removing subdomains
-        while (domainToCheck.contains(".")) {
-            ListHostedZonesResponse zones = client.listHostedZones();
-            for (HostedZone zone : zones.hostedZones()) {
-                String zoneName = zone.name();
-                if (zoneName.endsWith(".")) {
-                    zoneName = zoneName.substring(0, zoneName.length() - 1);
-                }
-                if (domainToCheck.equals(zoneName) || domain.endsWith("." + zoneName)) {
-                    hostedZoneId = zone.id();
-                    break;
-                }
-            }
-            if (hostedZoneId != null) break;
-            
-            int dotIndex = domainToCheck.indexOf('.');
-            if (dotIndex == -1) break;
-            domainToCheck = domainToCheck.substring(dotIndex + 1);
-        }
-        
-        if (hostedZoneId == null) {
-            throw new RuntimeException("No hosted zone found for " + domain);
-        }
-        
-        // Update the record
         ChangeResourceRecordSetsRequest request = ChangeResourceRecordSetsRequest.builder()
-            .hostedZoneId(hostedZoneId)
+            .hostedZoneId(hosted_zone_id)
             .changeBatch(ChangeBatch.builder()
                 .changes(Change.builder()
                     .action(ChangeAction.UPSERT)
@@ -247,6 +212,5 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             .build();
             
         client.changeResourceRecordSets(request);
-        logger.info("Updated {} to {}", domain, ip);
     }
 }
