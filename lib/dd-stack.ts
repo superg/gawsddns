@@ -48,20 +48,8 @@ export class DDStack extends cdk.Stack {
       proxy: true, // Enable proxy integration
     });
 
-    // Add /nic/update path for DynDNS compatibility
-    api.root
-      .addResource('nic')
-      .addResource('update')
-      .addMethod('GET', integration);
-
-    // Add /v3/update path for DynDNS API v3 compatibility
-    api.root
-      .addResource('v3')
-      .addResource('update')
-      .addMethod('GET', integration);
-
     // Add a proxy resource to catch any other paths
-    api.root.addProxy();
+    api.root.addProxy({ defaultIntegration: integration });
 
     // Create custom domain with SSL certificate
     const certificate = certificatemanager.Certificate.fromCertificateArn(

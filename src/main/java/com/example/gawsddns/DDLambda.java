@@ -7,105 +7,133 @@ import software.amazon.awssdk.services.route53.model.*;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Base64;
+import org.apache.commons.validator.routines.DomainValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 
-public class DDLambda implements RequestHandler<Map<String, Object>, Map<String, Object>> {
+public class DDLambda implements RequestHandler<Map<String, Object>, Map<String, Object>>
+{
     private static final Logger logger = LoggerFactory.getLogger(DDLambda.class);
     
     @Override
-    public Map<String, Object> handleRequest(Map<String, Object> input, Context context) {
-        logger.info("input: {}", new Gson().toJson(input));
-        
+    public Map<String, Object> handleRequest(Map<String, Object> input, Context context)
+    {
         try {
-            // Extract parameters from API Gateway proxy format
-            String hostname = null;
-            String myip = null;
-            String authHeader = null;
+            logger.info("input: {}", new Gson().toJson(input));
             
-            // Get query parameters (hostname and myip)
-            Object queryParamsObj = input.get("queryStringParameters");
-            if (queryParamsObj instanceof Map) {
+            // get authentication info
+            String auth_header = null;
+            Object headers_obj = input.get("headers");
+            if(headers_obj instanceof Map)
+            {
                 @SuppressWarnings("unchecked")
-                Map<String, String> queryParams = (Map<String, String>) queryParamsObj;
-                hostname = queryParams.get("hostname");
-                myip = queryParams.get("myip");
+                Map<String, String> headers = (Map<String, String>)headers_obj;
+                auth_header = getCaseInsensitiveParam(headers, "Authorization");
             }
             
-            // Get authorization header
-            Object headersObj = input.get("headers");
-            if (headersObj instanceof Map) {
+            if(!isValidAuth(auth_header))
+                return createResponse(401, "badauth");
+            
+            // validate update path
+            String path = (String)input.get("path");
+            if(path != null && !path.equals("/nic/update") && !path.equals("/v3/update"))
+                return createResponse(404, "Not Found");
+
+            // get arguments
+            String hostname = null;
+            String myip = null;
+            Object query_params_obj = input.get("queryStringParameters");
+            if((query_params_obj instanceof Map))
+            {
                 @SuppressWarnings("unchecked")
-                Map<String, String> headers = (Map<String, String>) headersObj;
-                authHeader = headers.get("Authorization");
-                if (authHeader == null) {
-                    authHeader = headers.get("authorization"); // case-insensitive fallback
+                Map<String, String> query_params = (Map<String, String>)query_params_obj;
+                hostname = getCaseInsensitiveParam(query_params, "hostname");
+                myip = getCaseInsensitiveParam(query_params, "myip");
+            }
+
+            if(!DomainValidator.getInstance().isValid(hostname))
+                return createResponse(400, "notfqdn");
+            
+            // infer IP from the request if not provided
+            if(myip == null)
+            {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> request_context = (Map<String, Object>)input.get("requestContext");
+                if(request_context != null)
+                {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> identity = (Map<String, Object>)request_context.get("identity");
+                    if(identity != null)
+                    {
+                        Object source_ip_obj = identity.get("sourceIp");
+                        if(source_ip_obj instanceof String)
+                            myip = (String)source_ip_obj;
+                    }
                 }
             }
             
-            logger.info("Extracted - hostname: {}, myip: {}, hasAuth: {}", hostname, myip, authHeader != null);
-            
-            // Validate path for Dyn API specification compliance - only accept official endpoints
-            String path = (String) input.get("path");
-            if (path != null && !path.equals("/nic/update") && !path.equals("/v3/update")) {
-                logger.info("Invalid path: {} - only /nic/update and /v3/update are supported", path);
-                return createResponse(404, "Not Found");
-            }
-            
-            // Validate hostname
-            if (hostname == null || hostname.trim().isEmpty()) {
-                return createResponse(400, "notfqdn");
-            }
-            
-            // Check authentication
-            if (!isValidAuth(authHeader)) {
-                return createResponse(401, "badauth");
-            }
-            
-            // Use default IP if none provided
-            if (myip == null || myip.trim().isEmpty()) {
-                myip = "1.2.3.4"; // Default for testing
-            }
-            
-            // Check if IP has changed
-            String currentIP = getCurrentDnsRecord(hostname);
-            if (myip.equals(currentIP)) {
+            // check if IP has changed
+            if(myip.equals(getCurrentDnsRecord(hostname)))
                 return createResponse(200, "nochg " + myip);
-            }
             
-            // Update DNS record
+            // update DNS record
             updateDnsRecord(hostname, myip);
             
             return createResponse(200, "good " + myip);
-            
-        } catch (Exception e) {
-            logger.error("Error: ", e);
+        }
+        catch(Exception e)
+        {
+            logger.error("exception", e);
             return createResponse(500, "dnserr");
         }
     }
-    
-    private boolean isValidAuth(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Basic ")) {
+
+    private String getCaseInsensitiveParam(Map<String, String> params, String key)
+    {
+        for(Map.Entry<String, String> entry : params.entrySet())
+            if(key.equalsIgnoreCase(entry.getKey()))
+                return entry.getValue();
+
+        return null;
+    }
+
+    private Map<String, Object> createResponse(int statusCode, String body)
+    {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", "text/plain");
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("statusCode", statusCode);
+        response.put("headers", headers);
+        response.put("body", body);
+
+        return response;
+    }
+
+    private boolean isValidAuth(String authHeader)
+    {
+        if(authHeader == null || !authHeader.startsWith("Basic "))
             return false;
-        }
         
-        try {
+        try
+        {
             String base64Credentials = authHeader.substring("Basic ".length());
             String credentials = new String(Base64.getDecoder().decode(base64Credentials));
             String[] parts = credentials.split(":", 2);
             
-            return parts.length == 2 && 
-                   "superg".equals(parts[0]) && 
-                   "DontLookHere-290".equals(parts[1]);
-        } catch (Exception e) {
+            return parts.length == 2 && "superg".equals(parts[0]) && "DontLookHere-290".equals(parts[1]);
+        }
+        catch(Exception e)
+        {
             return false;
         }
     }
     
-    private String getCurrentDnsRecord(String domain) {
-        try {
+    private String getCurrentDnsRecord(String domain)
+    {
+        try
+        {
             Route53Client client = Route53Client.create();
             
             // Find the hosted zone first
@@ -162,13 +190,16 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             
             logger.info("No A record found for {}", domain);
             return null;
-        } catch (Exception e) {
+        }
+        catch (Exception e)
+        {
             logger.error("Error checking current DNS record for {}: {}", domain, e.getMessage());
             return null;
         }
     }
     
-    private void updateDnsRecord(String domain, String ip) throws Exception {
+    private void updateDnsRecord(String domain, String ip) throws Exception
+    {
         // Find the hosted zone
         Route53Client client = Route53Client.create();
         
@@ -217,17 +248,5 @@ public class DDLambda implements RequestHandler<Map<String, Object>, Map<String,
             
         client.changeResourceRecordSets(request);
         logger.info("Updated {} to {}", domain, ip);
-    }
-    
-    private Map<String, Object> createResponse(int statusCode, String body) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("statusCode", statusCode);
-        
-        Map<String, String> headers = new HashMap<>();
-        headers.put("Content-Type", "text/plain");
-        response.put("headers", headers);
-        
-        response.put("body", body);
-        return response;
     }
 }
