@@ -51,30 +51,54 @@ export class DDStack extends cdk.Stack {
     // Add a proxy resource to catch any other paths
     api.root.addProxy({ defaultIntegration: integration });
 
-    // Create custom domain with SSL certificate
+    // Create custom domain with SSL certificate (dualstack, REGIONAL)
     const certificate = certificatemanager.Certificate.fromCertificateArn(
       this,
       'Certificate',
       `arn:aws:acm:${this.region}:${this.account}:certificate/${props.config.certificateId}`
     );
 
-    const customDomain = new apigateway.DomainName(this, 'CustomDomain', {
+    // Use low-level CfnDomainName for dualstack support
+    const customDomain = new apigateway.CfnDomainName(this, 'CustomDomain', {
       domainName: `${props.config.subdomainName}.${props.config.domainName}`,
-      certificate: certificate,
+      regionalCertificateArn: certificate.certificateArn,
+      endpointConfiguration: {
+        types: ['REGIONAL'],
+        ipAddressType: 'dualstack',
+      },
+      securityPolicy: 'TLS_1_2',
     });
 
-    // Map the custom domain to the API
-    new apigateway.BasePathMapping(this, 'BasePathMapping', {
-      domainName: customDomain,
-      restApi: api,
-      basePath: '', // Empty string means root path
+    // Map the custom domain to the API using CfnBasePathMapping
+    new apigateway.CfnBasePathMapping(this, 'BasePathMapping', {
+      domainName: customDomain.ref,
+      restApiId: api.restApiId,
+      basePath: '',
     });
 
     // Create DNS record for HTTPS endpoint
+    // Route53 records for custom domain
+    // Use domainNameAliasDomainName and domainNameAliasHostedZoneId for Route53 alias
     new route53.ARecord(this, 'DDNSRecord', {
       zone: hostedZone,
       recordName: props.config.subdomainName,
-      target: route53.RecordTarget.fromAlias(new targets.ApiGatewayDomain(customDomain)),
+      target: route53.RecordTarget.fromAlias({
+        bind: () => ({
+          dnsName: customDomain.attrRegionalDomainName,
+          hostedZoneId: customDomain.attrRegionalHostedZoneId,
+        })
+      }),
+    });
+
+    new route53.AaaaRecord(this, 'DDNSRecordAAAA', {
+      zone: hostedZone,
+      recordName: props.config.subdomainName,
+      target: route53.RecordTarget.fromAlias({
+        bind: () => ({
+          dnsName: customDomain.attrRegionalDomainName,
+          hostedZoneId: customDomain.attrRegionalHostedZoneId,
+        })
+      }),
     });
   }
 }
