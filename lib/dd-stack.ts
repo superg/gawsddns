@@ -2,9 +2,8 @@ import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as route53 from 'aws-cdk-lib/aws-route53';
-import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as targets from 'aws-cdk-lib/aws-route53-targets';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface DDStackProps extends cdk.StackProps {
@@ -12,6 +11,8 @@ export interface DDStackProps extends cdk.StackProps {
     certificateId: string;
     domainName: string;
     subdomainName: string;
+    username: string;
+    password: string;
   };
 }
 
@@ -38,43 +39,112 @@ export class DDStack extends cdk.Stack {
       domainName: props.config.domainName,
     });
 
-    // Create the API with direct Lambda integration
-    const api = new apigateway.RestApi(this, 'DDApi', {
-      restApiName: 'Dynamic DNS API',
+    // Create the API Gateway REST API using CfnRestApi
+    const api = new apigateway.CfnRestApi(this, 'DDApi', {
+      name: 'Dynamic DNS API',
+      endpointConfiguration: {
+        types: ['REGIONAL'],
+        ipAddressType: "dualstack"
+      },
     });
 
-    // Create Lambda integration with proxy
-    const integration = new apigateway.LambdaIntegration(ddLambda, {
-      proxy: true, // Enable proxy integration
+    // Create Lambda permission for API Gateway to invoke the Lambda
+    new lambda.CfnPermission(this, 'ApiGatewayInvokePermission', {
+      action: 'lambda:InvokeFunction',
+      functionName: ddLambda.functionName,
+      principal: 'apigateway.amazonaws.com',
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${api.ref}/*/*/*`,
     });
 
-    // Add a proxy resource to catch any other paths
-    api.root.addProxy({ defaultIntegration: integration });
+    // Create the root resource ("/")
+    const rootResource = new apigateway.CfnResource(this, 'RootResource', {
+      parentId: api.attrRootResourceId,
+      pathPart: '{proxy+}',
+      restApiId: api.ref,
+    });
 
-    // Create custom domain with SSL certificate
-    const certificate = certificatemanager.Certificate.fromCertificateArn(
-      this,
-      'Certificate',
-      `arn:aws:acm:${this.region}:${this.account}:certificate/${props.config.certificateId}`
-    );
+    // Create the ANY method with Lambda proxy integration
+    const anyMethod = new apigateway.CfnMethod(this, 'AnyMethod', {
+      restApiId: api.ref,
+      resourceId: rootResource.ref,
+      httpMethod: 'ANY',
+      authorizationType: 'NONE',
+      integration: {
+        type: 'AWS_PROXY',
+        integrationHttpMethod: 'POST',
+        uri: `arn:aws:apigateway:${this.region}:lambda:path/2015-03-31/functions/${ddLambda.functionArn}/invocations`,
+      },
+      requestParameters: {
+        'method.request.path.proxy': true,
+      },
+    });
 
-    const customDomain = new apigateway.DomainName(this, 'CustomDomain', {
+    // Deploy the API, depends on method
+    const deployment = new apigateway.CfnDeployment(this, 'ApiDeployment', {
+      restApiId: api.ref,
+      stageName: 'prod',
+    });
+    deployment.node.addDependency(anyMethod);
+
+    // Create custom domain with SSL certificate using CfnDomainName
+    const certificateArn = `arn:aws:acm:${this.region}:${this.account}:certificate/${props.config.certificateId}`;
+    const customDomain = new apigateway.CfnDomainName(this, 'CustomDomain', {
       domainName: `${props.config.subdomainName}.${props.config.domainName}`,
-      certificate: certificate,
+      regionalCertificateArn: certificateArn,
+      endpointConfiguration: {
+        types: ['REGIONAL'],
+        ipAddressType: 'dualstack'
+      },
     });
 
-    // Map the custom domain to the API
-    new apigateway.BasePathMapping(this, 'BasePathMapping', {
-      domainName: customDomain,
-      restApi: api,
-      basePath: '', // Empty string means root path
+    // Base path mapping for custom domain, depends on domain and deployment
+    const basePathMapping = new apigateway.CfnBasePathMapping(this, 'BasePathMapping', {
+      domainName: customDomain.domainName!,
+      restApiId: api.ref,
+      stage: 'prod',
+      basePath: '',
     });
+    basePathMapping.node.addDependency(customDomain);
+    basePathMapping.node.addDependency(deployment);
 
-    // Create DNS record for HTTPS endpoint
+    // Create DNS record for HTTPS endpoint using CfnDomainName outputs
     new route53.ARecord(this, 'DDNSRecord', {
       zone: hostedZone,
       recordName: props.config.subdomainName,
-      target: route53.RecordTarget.fromAlias(new targets.ApiGatewayDomain(customDomain)),
+      target: route53.RecordTarget.fromAlias({
+        bind: () => ({
+          dnsName: customDomain.attrRegionalDomainName,
+          hostedZoneId: customDomain.attrRegionalHostedZoneId,
+        }),
+      }),
     });
+
+    // Create AAAA record for HTTPS endpoint using CfnDomainName outputs
+    new route53.AaaaRecord(this, 'DDNSRecordAAAA', {
+      zone: hostedZone,
+      recordName: props.config.subdomainName,
+      target: route53.RecordTarget.fromAlias({
+        bind: () => ({
+          dnsName: customDomain.attrRegionalDomainName,
+          hostedZoneId: customDomain.attrRegionalHostedZoneId,
+        }),
+      }),
+    });
+
+    // Store credentials in SSM Parameter Store
+    const usernameParam = new ssm.StringParameter(this, 'DDNSUsernameParam', {
+      parameterName: '/gawsddns/username',
+      stringValue: props.config.username,
+      tier: ssm.ParameterTier.STANDARD
+    });
+    const passwordParam = new ssm.StringParameter(this, 'DDNSPasswordParam', {
+      parameterName: '/gawsddns/password',
+      stringValue: props.config.password,
+      tier: ssm.ParameterTier.STANDARD
+    });
+
+    // Grant Lambda permission to read these parameters
+    usernameParam.grantRead(ddLambda);
+    passwordParam.grantRead(ddLambda);
   }
 }

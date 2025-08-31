@@ -11,5 +11,7 @@ new DDStack(app, 'DDStack', {
     certificateId: config.certificateId,
     domainName: config.domainName,
     subdomainName: config.subdomainName,
+    username: config.username,
+    password: config.password
   },
 });
