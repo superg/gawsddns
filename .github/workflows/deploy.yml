@@ -1,0 +1,52 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+      - name: Create config.json
+        run: |
+          echo '{
+            "account": "${{ secrets.GAWSDDNS_ACCOUNT }}",
+            "region": "${{ secrets.GAWSDDNS_REGION }}",
+            "certificateId": "${{ secrets.GAWSDDNS_CERTIFICATE_ID }}",
+            "domainName": "${{ secrets.GAWSDDNS_DOMAIN_NAME }}",
+            "subdomainName": "${{ secrets.GAWSDDNS_SUBDOMAIN_NAME }}",
+            "username": "${{ secrets.GAWSDDNS_USERNAME }}",
+            "password": "${{ secrets.GAWSDDNS_PASSWORD }}"
+          }' > config.json
+          
+      - name: Build project
+        run: npm run build
+
+      - name: Synthesize CDK
+        run: npm run synth
+
+      - name: Deploy CDK
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+        run: npm run deploy

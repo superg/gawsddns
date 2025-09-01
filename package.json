@@ -9,10 +9,10 @@
     "build": "npm run build:java && npm run build:ts",
     "watch": "tsc -w",
     "test": "jest",
-    "cdk": "cdk",
-    "deploy": "npm run build && cdk deploy",
-    "diff": "npm run build && cdk diff",
-    "synth": "npm run build && cdk synth"
+    "cdk": "npx cdk",
+    "deploy": "npm run build && npx cdk deploy",
+    "diff": "npm run build && npx cdk diff",
+    "synth": "npm run build && npx cdk synth"
   },
   "bin": {
     "dd": "bin/dd.js"
@@ -23,8 +23,8 @@
     "ddns",
     "route53"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Hennadiy Brych <gennadiy.brych@gmail.com>",
+  "license": "GPL-3.0",
   "dependencies": {
     "aws-cdk-lib": "^2.212.0",
     "constructs": "^10.4.2",
