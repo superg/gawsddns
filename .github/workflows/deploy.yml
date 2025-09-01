@@ -29,8 +29,8 @@ jobs:
       - name: Create config.json
         run: |
           echo '{
-            "account": "${{ secrets.GAWSDDNS_ACCOUNT }}",
-            "region": "${{ secrets.GAWSDDNS_REGION }}",
+            "account": "${{ secrets.AWS_ACCOUNT }}",
+            "region": "${{ secrets.AWS_REGION }}",
             "certificateId": "${{ secrets.GAWSDDNS_CERTIFICATE_ID }}",
             "domainName": "${{ secrets.GAWSDDNS_DOMAIN_NAME }}",
             "subdomainName": "${{ secrets.GAWSDDNS_SUBDOMAIN_NAME }}",
@@ -42,15 +42,11 @@ jobs:
         run: npm run build
 
       - name: Synthesize CDK
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: npm run synth
 
       - name: Deploy CDK
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
         run: npm run deploy
