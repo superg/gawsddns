@@ -7,7 +7,7 @@ A serverless Dynamic DNS (DDNS) service built with AWS CDK, featuring a Java Lam
 - **AWS Lambda** (Java 17): Handles DNS update requests and Route53 operations (will be rewritten in Rust)
 - **API Gateway**: RESTful endpoint with custom domain and SSL certificate
 - **Route53**: DNS record management for both IPv4 (A) and IPv6 (AAAA) records
-- **SSM Parameter Store**: Secure storage for authentication credentials
+- **SSM Parameter Store**: Secure storage for authentication credentials (used instead of Secrets Manager for cost optimization)
 - **AWS CDK**: Infrastructure as Code deployment
 
 ## � DynDNS Implementation Details
@@ -55,10 +55,6 @@ This service implements the DynDNS Remote Access API based on the [official spec
 ### Installation
 
 1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/gawsddns.git
-   cd gawsddns
-   ```
 
 2. **Install dependencies**
    ```bash
