@@ -189,21 +189,6 @@ curl -u yourusername:yourpassword "https://members.yourdomain.com/nic/update?hos
 Invoke-WebRequest "https://members.yourdomain.com/nic/update?hostname=host.yourdomain.com&myip=192.168.1.1" -Headers @{Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("yourusername:yourpassword"))}
 ```
 
-## 🔒 Security
-
-- Credentials stored securely in AWS SSM Parameter Store
-- SSL/TLS encryption for all API communication
-- IAM roles with minimal required permissions
-- Basic authentication for API access
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
 ## 📄 License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE.txt](LICENSE.txt) file for details.
