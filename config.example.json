@@ -1,7 +1,9 @@
 {
-  "account": "YOUR_AWS_ACCOUNT_ID",
-  "region": "YOUR_AWS_REGION",
-  "certificateId": "YOUR_CERTIFICATE_ID",
+  "account": "012345678901",
+  "region": "us-east-1",
+  "certificateId": "01234567-89ab-cdef-0123-456789abcdef",
   "domainName": "yourdomain.com",
-  "subdomainName": "members"
+  "subdomainName": "members",
+  "username": "yourusername",
+  "password": "yourpassword"
 }
