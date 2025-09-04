@@ -73,11 +73,76 @@ This service implements the DynDNS Remote Access API based on the [official spec
    npm run deploy
    ```
 
-### Usage
+## Client Configuration Examples
 
-Once deployed, you can update your DNS records using standard DynDNS clients or manual HTTP requests.
+For automated updates, you can configure various DDNS clients:
 
-#### Manual Updates
+#### ddclient (`/etc/ddclient.conf`)
+
+**IPv4 Configuration:**
+```ini
+protocol=dyndns2
+ssl=yes
+use=if, if=eth0
+server=members.yourdomain.com
+login=yourusername
+password='yourpassword'
+host.yourdomain.com
+```
+
+**IPv6 Configuration:**
+```ini
+protocol=dyndns2
+ssl=yes
+usev6=ifv6, if=eth0
+server=members.yourdomain.com
+login=yourusername
+password='yourpassword'
+host.yourdomain.com
+```
+
+#### inadyn (`/etc/inadyn.conf`)
+
+**IPv4 Configuration:**
+```ini
+custom yourdomain {
+    username    = yourusername
+    password    = yourpassword
+    ddns-server = members.yourdomain.com
+    ddns-path   = "/nic/update?hostname=%h.yourdomain.com&myip=%i"
+    hostname    = host
+}
+```
+
+#### dnsupdate (`/etc/dnsupdate.conf`)
+
+**IPv4/IPv6 Configuration:**
+```yaml
+dns_services:
+    - type: StandardService
+      args:
+          service_ipv4: members.yourdomain.com
+          service_ipv6: members.yourdomain.com
+          username: yourusername
+          password: yourpassword
+          hostname: host.yourdomain.com
+```
+
+#### Ubiquiti UniFi Network Controller
+
+Configure Dynamic DNS through the UniFi Controller web interface (inadyn-based):
+
+| Field | Value |
+|-------|-------|
+| **Service** | Custom |
+| **Hostname** | host |
+| **Username** | yourusername |
+| **Password** | yourpassword |
+| **Server** | `members.yourdomain.com/nic/update?hostname=%h.yourdomain.com&myip=%i` |
+
+*Note: UniFi merges inadyn's `ddns-server` and `ddns-path` settings into a single "Server" field.*
+
+## Manual Updates
 
 You can manually update DNS records using HTTP requests:
 
@@ -110,75 +175,6 @@ curl -u yourusername:yourpassword "https://members.yourdomain.com/nic/update?hos
 ```powershell
 Invoke-WebRequest "https://members.yourdomain.com/nic/update?hostname=host.yourdomain.com&myip=192.168.1.1" -Headers @{Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("yourusername:yourpassword"))}
 ```
-
-#### Client Configuration Examples
-
-For automated updates, you can configure various DDNS clients:
-
-##### ddclient (`/etc/ddclient.conf`)
-
-**IPv4 Configuration:**
-```ini
-protocol=dyndns2
-ssl=yes
-use=if, if=eth0
-server=members.yourdomain.com
-login=yourusername
-password='yourpassword'
-host.yourdomain.com
-```
-
-**IPv6 Configuration:**
-```ini
-protocol=dyndns2
-ssl=yes
-usev6=ifv6, if=eth0
-server=members.yourdomain.com
-login=yourusername
-password='yourpassword'
-host.yourdomain.com
-```
-
-##### inadyn (`/etc/inadyn.conf`)
-
-**IPv4 Configuration:**
-```ini
-custom yourdomain {
-    username    = yourusername
-    password    = yourpassword
-    ddns-server = members.yourdomain.com
-    ddns-path   = "/nic/update?hostname=%h.yourdomain.com&myip=%i"
-    hostname    = host
-}
-```
-
-##### dnsupdate (`/etc/dnsupdate.conf`)
-
-**IPv4/IPv6 Configuration:**
-```yaml
-dns_services:
-    - type: StandardService
-      args:
-          service_ipv4: members.yourdomain.com
-          service_ipv6: members.yourdomain.com
-          username: yourusername
-          password: yourpassword
-          hostname: host.yourdomain.com
-```
-
-##### Ubiquiti UniFi Network Controller
-
-Configure Dynamic DNS through the UniFi Controller web interface (inadyn-based):
-
-| Field | Value |
-|-------|-------|
-| **Service** | Custom |
-| **Hostname** | host |
-| **Username** | yourusername |
-| **Password** | yourpassword |
-| **Server** | `members.yourdomain.com/nic/update?hostname=%h.yourdomain.com&myip=%i` |
-
-*Note: UniFi merges inadyn's `ddns-server` and `ddns-path` settings into a single "Server" field.*
 
 ## 🔒 Security
 
