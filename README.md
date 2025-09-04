@@ -114,6 +114,19 @@ custom yourdomain {
 }
 ```
 
+**IPv6 Configuration:**
+```ini
+allow-ipv6 = true
+custom yourdomain {
+    username    = yourusername
+    password    = yourpassword
+    ddns-server = members.yourdomain.com
+    ddns-path   = "/nic/update?hostname=%h.yourdomain.com&myip=%i"
+    hostname    = host
+    checkip-command = "/sbin/ip -6 addr | grep inet6 | awk -F '[ \t]+|/' '{print $3}' | grep -v ^::1 | grep -v ^fe80"
+}
+```
+
 #### dnsupdate (`/etc/dnsupdate.conf`)
 
 **IPv4/IPv6 Configuration:**
